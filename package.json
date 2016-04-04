@@ -6,11 +6,14 @@
   "dependencies": {
     "async": "^2.0.0-rc.2",
     "file-changed": "^0.1.0",
+    "ftp": "^0.3.10",
     "jsftp": "^1.5.3",
     "moment": "^2.12.0",
+    "nexe": "^1.1.0",
     "read-json": "^1.0.3",
     "walk": "^2.3.9",
-    "walkdir": "0.0.11"
+    "walkdir": "0.0.11",
+    "watch": "^0.17.1"
   },
   "devDependencies": {},
   "scripts": {

@@ -5,11 +5,14 @@ var walk = require('walkdir');
 var fs = require('fs');
 var path = require('path');
 var moment = require('moment');
+var watch = require('watch');
 
 var settings = {};
 var ftp;
 var remoteFiles = {};
 var localFiles = {};
+var waitTime = 1000;
+var definedWatch = false;
 
 function main(){
   async.series([
@@ -43,14 +46,102 @@ function main(){
   ]);
 }
 
-function watchAndSync(){
-  console.log("Syncing...");
-  
-  
+function readAndPut(f){
+  console.log("READ AND PUT: ",f);
+  fs.readFile(f, (err, buffer) => {
+    if (err) throw new Error(err);
+    var dir = settings.remote + f.replace(/[\\]/g,"/").replace(settings.local,"");
+    var pathSplit = dir.split("/");
+    var currTree = pathSplit[0];
+    var found = false;
+    for(i=0;i<pathSplit.length;i++){
+      for(file in remoteFiles){
+        if(remoteFiles[file].isFolder){
+          console.log(file);
+          console.log(pathSplit[i])
+          if(file==pathSplit[i]){ // TODO: better checking? debug?
+            console.log("FOLDER EXISTS!");
+          }
+        }
+      }
+      currTree += pathSplit[i] + "/";
+    }
+    if(!found){
+      console.log("folder not found, creating");
+      ftp.raw.mkd(path.dirname(dir), function(err, data) {
+          if (err) throw new Error(err);
+          if(data.code==257){
+            ftp.put(buffer, dir, function(err) { 
+              if(err) throw new Error(err);
+            });
+          }else{
+            console.log("ERROR: NO CODE 257 FOR CREATING DIR");
+            console.log(data); 
+          }
+      });
+    }else{
+      ftp.put(buffer, dir, function(err) { 
+        if(err) throw new Error(err);
+      });
+    }
+  });
 }
 
-function grabRemote(cb){
-  ftp.ls(settings.remote, function(err, res) {
+function compareRemote(f){
+  console.log("COMPARING: ",f);
+  var dir = settings.remote + f.replace(/[\\]/g,"/").replace(settings.local,"");
+  if(!remoteFiles[dir]) return true;
+}
+
+function commit(f){
+  console.log("COMMITING: ",f);
+  var dir = settings.remote + f.replace(/[\\]/g,"/").replace(settings.local,"");
+  var canProceed = compareRemote(f);
+  if(canProceed){
+    readAndPut(f);
+  }else{
+    console.log("cannot update file, remote file is newer!");
+  }
+}
+
+function watchAndSync(){
+  if(!definedWatch){
+    // Watch local tree
+    console.log("Now watching: ",settings.local);
+    watch.createMonitor(settings.local, function (monitor) {
+      monitor.files['*']
+      monitor.on("created", function (f, stat) {
+        console.log("NEW ",f);
+        
+      })
+      monitor.on("changed", function (f, curr, prev) {
+        console.log("EDIT ",f);
+        commit(f);
+      })
+      monitor.on("removed", function (f, stat) {
+        console.log("REM ",f);
+      })
+    })
+    definedWatch = true;
+  }
+}
+
+function grabRemote(dir,cb){
+  var recursive = false;
+  
+  if(dir && !cb){
+    // No callback so use default dir
+    cb = dir;
+    dir = settings.remote;
+    setTimeout(function(){
+      cb();
+    },waitTime);
+  }else{
+    // This is probably from grabRemote function calling itself, recursive folder searching.
+    dir = settings.remote+"/"+dir;
+    recursive = true;
+  }
+  ftp.ls(dir, function(err, res) {
     if(err) throw new Error(err);
     for(i=0;i<res.length;i++){
       if(res[i].type == 1){
@@ -58,21 +149,26 @@ function grabRemote(cb){
       }else{
         res[i].type = false
       }
-      remoteFiles[res[i].name] = {
+      var name = res[i].name;
+      if(recursive) name = dir + "/" + name;
+      remoteFiles[name] = {
         isFolder: res[i].type,
         modified: res[i].time/1000,
         size: res[i].size
       }
+      if(res[i].type){
+        grabRemote(res[i].name,function(){});
+      }
     }
   });
-  setTimeout(function(){
-    cb();
-  },1000);
 }
 
 function grabLocal(cb){
   walk(settings.local,function(file,stat){
-    localFiles[path.basename(file)] = {
+    var dir = file.replace(/[\\]/g,"/").replace(settings.local,"").replace("/"+path.basename(file),"");
+    var name = path.basename(file);
+    if(dir.length>=1) name = dir + "/" + name;
+    localFiles[name] = {
       isFolder: fs.lstatSync(file).isDirectory(),
       modified: Date.parse(stat.mtime)/1000,
       size: stat.size
@@ -80,7 +176,7 @@ function grabLocal(cb){
   })
   setTimeout(function(){
     cb();
-  },1000);
+  },waitTime);
 }
 
 function connectFTP(cb){
@@ -92,6 +188,7 @@ function connectFTP(cb){
       user: settings.user,
       pass: settings.pass
     });
+    ftp.keepAlive([10000])
     cb();
   })
 }
