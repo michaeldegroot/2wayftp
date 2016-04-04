@@ -1,0 +1,19 @@
+{
+  "name": "2wayftp",
+  "version": "0.0.1",
+  "description": "A two way ftp sync module",
+  "main": "app.js",
+  "dependencies": {
+    "async": "^2.0.0-rc.2",
+    "jsftp": "^1.5.3",
+    "read-json": "^1.0.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": {
+    "name": "michaeldegroot"
+  },
+  "license": "MIT"
+}
