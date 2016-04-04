@@ -5,8 +5,12 @@
   "main": "app.js",
   "dependencies": {
     "async": "^2.0.0-rc.2",
+    "file-changed": "^0.1.0",
     "jsftp": "^1.5.3",
-    "read-json": "^1.0.3"
+    "moment": "^2.12.0",
+    "read-json": "^1.0.3",
+    "walk": "^2.3.9",
+    "walkdir": "0.0.11"
   },
   "devDependencies": {},
   "scripts": {
