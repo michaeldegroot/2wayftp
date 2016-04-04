@@ -21,41 +21,66 @@ function main(){
       },
       function(cb){
         // Look for remote files
-        ftp.ls(settings.remote, function(err, res) {
-          if(err) throw new Error(err);
-          for(i=0;i<res.length;i++){
-            if(res[i].type == 1){
-              res[i].type = true
-            }else{
-              res[i].type = false
-            }
-            remoteFiles[res[i].name] = {
-              isFolder: res[i].type,
-              modified: res[i].time/1000,
-              size: res[i].size
-            }
-          }
-        });
-        setTimeout(function(){
-          cb();
-          console.log(remoteFiles);
+        grabRemote(function(){
+          console.log("Remote files ("+Object.keys(remoteFiles).length+"): ",remoteFiles);
           console.log("----------------------------");
-        },1000);
+          cb();
+        });
       },
       function(cb){
-        walk(settings.local,function(file,stat){
-          localFiles[path.basename(file)] = {
-            isFolder: fs.lstatSync(file).isDirectory(),
-            modified: Date.parse(stat.mtime)/1000,
-            size: stat.size
-          }
-        })
-        setTimeout(function(){
+        // Look for local files
+        grabLocal(function(){
+          console.log("Local files ("+Object.keys(localFiles).length+"): ",localFiles);
           cb();
-          console.log(localFiles);
-        },1000);
+        });
+      },
+      function(cb){
+        // Activate the watchAndSync function
+        setInterval(watchAndSync,10000);
+        watchAndSync();
+        cb();
       }
   ]);
+}
+
+function watchAndSync(){
+  console.log("Syncing...");
+  
+  
+}
+
+function grabRemote(cb){
+  ftp.ls(settings.remote, function(err, res) {
+    if(err) throw new Error(err);
+    for(i=0;i<res.length;i++){
+      if(res[i].type == 1){
+        res[i].type = true
+      }else{
+        res[i].type = false
+      }
+      remoteFiles[res[i].name] = {
+        isFolder: res[i].type,
+        modified: res[i].time/1000,
+        size: res[i].size
+      }
+    }
+  });
+  setTimeout(function(){
+    cb();
+  },1000);
+}
+
+function grabLocal(cb){
+  walk(settings.local,function(file,stat){
+    localFiles[path.basename(file)] = {
+      isFolder: fs.lstatSync(file).isDirectory(),
+      modified: Date.parse(stat.mtime)/1000,
+      size: stat.size
+    }
+  })
+  setTimeout(function(){
+    cb();
+  },1000);
 }
 
 function connectFTP(cb){
