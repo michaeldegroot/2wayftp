@@ -51,46 +51,19 @@ function readAndPut(f){
   fs.readFile(f, (err, buffer) => {
     if (err) throw new Error(err);
     var dir = settings.remote + f.replace(/[\\]/g,"/").replace(settings.local,"");
-    var pathSplit = dir.split("/");
-    var currTree = pathSplit[0];
-    var found = false;
-    for(i=0;i<pathSplit.length;i++){
-      for(file in remoteFiles){
-        if(remoteFiles[file].isFolder){
-          console.log(file);
-          console.log(pathSplit[i])
-          if(file==pathSplit[i]){ // TODO: better checking? debug?
-            console.log("FOLDER EXISTS!");
-          }
-        }
-      }
-      currTree += pathSplit[i] + "/";
-    }
-    if(!found){
-      console.log("folder not found, creating");
-      ftp.raw.mkd(path.dirname(dir), function(err, data) {
-          if (err) throw new Error(err);
-          if(data.code==257){
-            ftp.put(buffer, dir, function(err) { 
-              if(err) throw new Error(err);
-            });
-          }else{
-            console.log("ERROR: NO CODE 257 FOR CREATING DIR");
-            console.log(data); 
-          }
-      });
-    }else{
-      ftp.put(buffer, dir, function(err) { 
-        if(err) throw new Error(err);
-      });
-    }
+    ftp.put(buffer, dir, function(err) { 
+      if(err) throw new Error(err);
+    });
   });
 }
 
 function compareRemote(f){
   console.log("COMPARING: ",f);
   var dir = settings.remote + f.replace(/[\\]/g,"/").replace(settings.local,"");
-  if(!remoteFiles[dir]) return true;
+  var remId = remoteFiles[path.basename(dir)];
+  var locId = localFiles[path.basename(dir)];
+  if(!remId) return true; // Remote file does not exists
+  if(locId.modified>=remId.modified) return true; // Local file is newer
 }
 
 function commit(f){
@@ -104,6 +77,13 @@ function commit(f){
   }
 }
 
+function remRemote(f){
+  ftp.raw["delete"](function(err, data) {
+    if (err) throw new Error(err);
+    console.log(data);
+  });
+}
+
 function watchAndSync(){
   if(!definedWatch){
     // Watch local tree
@@ -112,7 +92,9 @@ function watchAndSync(){
       monitor.files['*']
       monitor.on("created", function (f, stat) {
         console.log("NEW ",f);
-        
+        grabLocal(function(){
+          commit(f);
+        })
       })
       monitor.on("changed", function (f, curr, prev) {
         console.log("EDIT ",f);
@@ -120,10 +102,38 @@ function watchAndSync(){
       })
       monitor.on("removed", function (f, stat) {
         console.log("REM ",f);
+        remRemote(f);
       })
     })
-    definedWatch = true;
+    definedWatch = true; 
   }
+  
+  grabRemote(function(){
+    console.log("Remote files ("+Object.keys(remoteFiles).length+"): ",remoteFiles);
+    console.log("----------------------------");
+    for(item in remoteFiles){
+      if(localFiles[item].modified<remoteFiles[item].modified){
+        updateLocal(item)
+      }
+    }
+  })
+}
+
+function updateLocal(f){
+  var str = "";
+  fPath = settings.remote+"/"+f;
+  ftp.get(fPath, function(err, socket) {
+    if (err) throw new Error(err);
+    socket.on("data", function(d) { str += d.toString(); })
+    socket.on("close", function(err) {
+      if(err) throw new Error(err);
+      fs.writeFile(settings.local+"/"+f, str, function(err) {
+        if(err) throw new Error(err);
+        console.log("The file was saved!");
+      }); 
+    });
+    socket.resume();
+  });
 }
 
 function grabRemote(dir,cb){
@@ -188,8 +198,11 @@ function connectFTP(cb){
       user: settings.user,
       pass: settings.pass
     });
-    ftp.keepAlive([10000])
-    cb();
+    ftp.auth(settings.user,settings.pass,function(err,data){
+      if(err) throw new Error(err);
+      if(data.code == 230) return(cb());
+      console.log(data);
+    });
   })
 }
 
