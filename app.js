@@ -13,6 +13,45 @@ var remoteFiles = {};
 var localFiles = {};
 var waitTime = 1000;
 var definedWatch = false;
+var monitor;
+
+var queue = require('queue');
+ 
+var q = queue();
+var results = [];
+ 
+// use the timeout feature to deal with jobs that  
+// take too long or forget to execute a callback 
+ 
+q.timeout = 100;
+ 
+q.on('timeout', function(next, job) {
+  console.log('job timed out:', job.toString().replace(/\n/g, ''));
+  next();
+});
+ 
+q.push(function(cb) {
+  setTimeout(function() {
+    console.log('slow job finished');
+    cb();
+  }, 200);
+});
+ 
+q.push(function(cb) {
+  console.log('forgot to execute callback');
+});
+ 
+// get notified when jobs complete 
+ 
+q.on('success', function(result, job) {
+  console.log('job finished processing:', job.toString().replace(/\n/g, ''));
+});
+ 
+// begin processing, get notified on end / failure 
+ 
+q.start(function(err) {
+  console.log('all done:', results);
+});
 
 function main(){
   async.series([
@@ -39,7 +78,7 @@ function main(){
       },
       function(cb){
         // Activate the watchAndSync function
-        setInterval(watchAndSync,10000);
+        setInterval(watchAndSync,4000);
         watchAndSync();
         cb();
       }
@@ -84,27 +123,49 @@ function remRemote(f){
   });
 }
 
-function watchAndSync(){
-  if(!definedWatch){
-    // Watch local tree
-    console.log("Now watching: ",settings.local);
-    watch.createMonitor(settings.local, function (monitor) {
-      monitor.files['*']
-      monitor.on("created", function (f, stat) {
-        console.log("NEW ",f);
-        grabLocal(function(){
-          commit(f);
-        })
-      })
-      monitor.on("changed", function (f, curr, prev) {
-        console.log("EDIT ",f);
+function startMonitor(){
+  console.log("Now watching: ",settings.local);
+  watch.createMonitor(settings.local, function (m) {
+    monitor = m;
+    monitor.files['*']
+    monitor.on("created", function (f, stat) {
+      console.log("NEW ",f);
+      grabLocal(function(){
         commit(f);
       })
-      monitor.on("removed", function (f, stat) {
-        console.log("REM ",f);
-        remRemote(f);
-      })
     })
+    monitor.on("changed", function (f, curr, prev) {
+      console.log("EDIT ",f);
+      commit(f);
+    })
+    monitor.on("removed", function (f, stat) {
+      console.log("REM ",f);
+      remRemote(f);
+    })
+  })
+}
+
+function stopMonitor(){
+  monitor.stop();
+}
+
+function watchAndSync(){
+ 
+// add jobs using the Array API 
+ 
+q.push(
+  function(cb) {
+    results.push('four');
+    cb();
+  },
+  function(cb) {
+    results.push('five');
+    cb();
+  }
+);
+  if(!definedWatch){
+    // Watch local tree
+    startMonitor();
     definedWatch = true; 
   }
   
@@ -112,6 +173,7 @@ function watchAndSync(){
     console.log("Remote files ("+Object.keys(remoteFiles).length+"): ",remoteFiles);
     console.log("----------------------------");
     for(item in remoteFiles){
+      if(!localFiles[item]) return(updateLocal(item));
       if(localFiles[item].modified<remoteFiles[item].modified){
         updateLocal(item)
       }
@@ -129,7 +191,12 @@ function updateLocal(f){
       if(err) throw new Error(err);
       fs.writeFile(settings.local+"/"+f, str, function(err) {
         if(err) throw new Error(err);
+        stopMonitor()
         console.log("The file was saved!");
+        grabLocal(function(){
+          console.log("Local files ("+Object.keys(localFiles).length+"): ",localFiles);
+          startMonitor();
+        });
       }); 
     });
     socket.resume();
